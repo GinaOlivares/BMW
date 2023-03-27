@@ -1,0 +1,1276 @@
+---
+title: "BMW Assessment report"
+author: "Georgina Olivares,PhD"
+date: "3/24/2023"
+output:
+  pdf_document: 
+    number_sections: true
+    toc: true
+    toc_depth: 5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, options(scipen=999),warning = FALSE, message = FALSE)
+
+library(tidyverse)
+library(lubridate)
+library(dataxray)
+library(correlationfunnel)
+library(kableExtra)
+library(scales)
+library(corrplot)
+library(tidymodels)
+source("BMW_assessment_functions.R")
+source("data/theme.R")
+
+```
+
+
+# Executive summary
+
+## Project
+
+The client *Paintshop* has quality problems in the painting process. Accordingly to their experience, such problems can be due to external factors. In order to detect such external factors and how they affect the painting process *Paintshop* installed sensors to measure different external variables that might affect the painting process. 
+
+1. The initial step of the project consists in exploring the data, to verify if it is clean *i.e* missing values, and duplicated data. Verify the given information *i.e* 150 cars produced by day. 
+
+2. The next step in the project is to combine all the datasets in order to obtain a complete picture. 
+
+3. Identify factors that cause problems in the painting process. We explore two different sets of variables: (1) the parameters inherent to the painting process as pressure, spin, voltage and current used to operate the robot. (2) External factors detected by the sensors Humidity, Temperature, Particular Matter 2.5 (PM 2.5), and  Particular Matter 10 (PM 10).
+
+4. A simple initial model in order to help the client to predict defects.
+
+## Results and conclusions
+
+1. The data is consistent with the information given by the client. There was no need to clean or modify the data in any way since it came clean and tidy.
+
+2. We combined all the datasets. The results of this combination allowed us to be able to identify relations between months, days, hours, defects, and components. We were able to identify the most common defect and the least probable by color, component, month, day, and hours. In this respect, a curious situation occurs at the end of the day, the number of cars with defects decreases significantly.
+
+3. The first set of parameters we analyzed was pressure, spin, voltage, and current. In this case, we found a lot of variations in the statistics of the data and how this is distributed. These parameters have a very "dynamic" behavior, and the distribution of the data is different depending on the specific variable. The data visualization shows that the parameters of the robot itself may be an important source of defects.
+
+On the other hand, the second set of variables Humidity, Temperature, Particular Matter 2.5 (PM 2.5), and  Particular Matter 10 (PM 10) showed a very "stable" behavior analyzing the statistics and distribution of the data. The Temperature and Humidity behave very similarly,  there are very small variations between the components without defects and those that have at least one defect. The observation indicates that the defects tend to occur when the mean of the Temperature and Humidity is higher than the mean of the cars without defects. The difference is very small, but when we combine this result with the median, we notice also that the median of the cars without defects is slightly smaller than the others. Inclusion is the defect with the closest mean and media to OK and it is the least probable defect to occur. In the case of Particular Matter 2.5 (PM 2.5), and  Particular Matter 10 (PM 10) happens the opposite situation, inclusion is the closest to the mean and median to OK and still is the least probable defect, but now the mean and median of both Ok and inclusion are higher.
+
+The inclusions are the least probable defect, this must be because an inclusion occurs on a painted surface which they surely control very well. The other defects appear with similar frequency.
+
+The data visualization shows that the external factors do not affect significantly the presence of defects.
+
+*Paintshop* has to be very careful with the sensors. In Particular Matter 2.5 (PM 2.5) reports negative values.
+We do not know if it is a problem with the calibration of the sensors or another interfering source. This problem can be causing misreading and giving wrong information. 
+
+
+4. We present two simple models using two different sets of parameters  (model 1)  pressure, spin, voltage and current used to operate the robot and (model 2) external factors detected by the sensors Humidity, Temperature, Particular Matter 2.5 (PM 2.5), and  Particular Matter 10 (PM 10). The implemented model is basic, but it can be improved after discussing it with the client. 
+
+Model 1 is a logistic regression using a binary variable *defects* where if the status is OK, it remains the same, but if the status is different from OK, the binary variable will be set as *Defective*. Using this new variable we could identify in the model that all the independent variables have a $p-value<0.05$, which suggests that all of them have a relation with the binary variable *defects*. The result of the model in the training data and the testing data was poor having a 40% mismatch between the real results and the predictions. This result is not surprising since, from data visualization of such variables, the variation in the defects is large. Being able to find an adequate combination of them requires a more detailed approach, such as talking with the client about which parameters can be adjusted. 
+
+We recommend an exhaustive review of the literature (articles) in order to identify other plausible variables that might be interfering with the painting process.
+
+Model 2 is a logistic regression using the same binary variable *defects*. We could identify in the model that not all the variables have a $p-value<0.05$, only Temp and PM2 do. Nevertheless, we carried on with the implementation of the model, obtaining a small improvement compared to model 1, about 8%. This result is not surprising either, since, from data visualization, the variables considered in the model present a very stable behavior.
+
+We must clarify that these models are not final, they need improvement, after discussing them with the client. 
+
+All these results can be found in the following sections.
+
+
+\pagebreak
+
+# Introduction
+## Statment of problem
+
+The client *Paintshop* has quality problems in the painting process. Accordingly to their experience, such problems can be due to external factors. In order to detect such external factors and how they affect the painting process *Paintshop* installed sensors to measure different external variables that might affect the painting process. 
+
+
+## Data provided
+
+*Paintshop* sent us different datasets containing information about the painting process, results, colors, and defects in the painting process. Information about the measurements of external factors done by the sensors was also sent. Most of the data is reported by date.
+
+# Questions to answer
+
+In this case, we want to answer some questions in order to assess the possible external factor that can be affecting the painting process.
+
+1. Is there any defect more common than others?
+2. When do defects occur during the day, more often at a specific time?
+3. Does a specific color have more defects than the others?
+4. Do the defects occur evenly in any component of the car or is there a component that presents more defects?
+5. What is the relation between the parameters (presure, voltage, current, spin) and the defects and components?
+6. Is there any external factor (humidity, temperature, or particular matter) present in the defects more often than the others?
+7. Is it possible to implement a model in order to make predictions?
+8. Can the initial model be improved?
+
+
+
+# Basic Exploratory Data Analysis of the data
+
+In this section, we want to review the data, in order to know it and verify if it is necessary to do a cleaning process before we work with the data.
+
+## Painting process data `P_Data.csv`
+
+```{r fig.pos='H'}
+
+df_process_xray %>% 
+  kbl(caption = "Summary P Data") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>% 
+  kable_styling(latex_options = "HOLD_position")
+  
+```
+
+1. `P_Data.csv` contains `r nrow(df_process_xray)` different variables.
+
+2.  The number of observations is `r df_process_xray[[1,4]]`.
+
+3. No missing values or *NA* are present.
+
+4. From the total `r df_process_xray[[1,4]]` observations we have the following:
+
+- *timestamp*: `r df_process_xray[[1,6]]` unique dates. 
+
+- *igef*: `r df_process_xray[[2,6]]` unique identification car number.  
+
+- *color*: `r df_process_xray[[3,6]]` unique colors. 
+
+- *component*: `r df_process_xray[[4,6]]` unique car components. 
+ 
+- *presure* (pressure): `r df_process_xray[[5,6]]` unique pressure values, in the range `r range(df_process$presure)` units.
+
+- *voltage*: `r df_process_xray[[6,6]]` unique voltage values in the range `r range(df_process$voltage)` units.
+
+- *current*: `r df_process_xray[[7,6]]` unique voltage values in the range `r range(df_process$current)` units.
+
+- *spin*: `r df_process_xray[[8,6]]` unique voltage values in the range `r range(df_process$spin)` units.
+
+
+
+
+## Maximum and minimum values of parameters per color `P_Parameters.csv`
+
+```{r fig.pos='H'}
+
+df_params_xray %>% 
+  kbl(caption = "Summary P Parameters") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>% 
+  kable_styling(latex_options = "HOLD_position")
+  
+```
+
+1. `P_Parameters.csv` contains `r nrow(df_params_xray)` different variables.
+
+2.  The number of observations is `r df_params_xray[[1,4]]`.
+
+3. No missing values or *NA* are present.
+
+4. From the total `r df_params_xray[[1,4]]` observations we have the following:
+
+- *color_code*: `r df_params_xray[[1,6]]` unique color codes. 
+
+- *presure_max* (pressure_max): `r df_params_xray[[2,6]]` unique values.  
+
+- *presure_min* (pressure_min): `r df_params_xray[[3,6]]` unique values. 
+
+- *voltage_max*: `r df_params_xray[[4,6]]` unique values. 
+ 
+- *voltage_min*: `r df_params_xray[[5,6]]` unique values.
+
+- *current_max*: `r df_params_xray[[6,6]]` unique values.
+
+- *current_min*: `r df_params_xray[[7,6]]` unique values.
+
+- *spin_max*: `r df_params_xray[[8,6]]` unique values.
+
+- *spin_min*: `r df_params_xray[[9,6]]` unique values.
+
+
+## Color and  code index `P_Material.csv`
+
+
+```{r fig.pos='H'}
+
+df_colors_xray %>% 
+  kbl(caption = "Summary P Material") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>% 
+  kable_styling(latex_options = "HOLD_position")
+  
+```
+
+1. `P_Material.csv` contains `r nrow(df_colors_xray)` different variables.
+
+2.  The number of observations is `r df_colors_xray[[1,4]]`.
+
+3. No missing values or *NA* are present.
+
+4. From the total `r df_colors_xray[[1,4]]` observations we have the following:
+
+- *color_name*: `r df_colors_xray[[1,6]]` unique colors. 
+
+- *color_code*: `r df_params_xray[[2,6]]` unique color codes.  
+
+## Environmental variables per day `Sensor_Data.csv`
+
+```{r fig.pos='H'}
+
+df_sensor_xray %>% 
+  kbl(caption = "Summary Sensor Data") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>% 
+  kable_styling(latex_options = "HOLD_position")
+  
+```
+
+1. `Sensor_Data.csv` contains `r nrow(df_sensor_xray)` different variables.
+
+2.  The number of observations is `r df_sensor_xray[[1,4]]`.
+
+3. No missing values or *NA* are present.
+
+4. From the total `r df_sensor_xray[[1,4]]` observations we have the following:
+
+- *Temp*: `r df_sensor_xray[[1,6]]` unique values in the range `r range(df_sensor$Temp)`. 
+
+- *Humy* (Humidity): `r df_sensor_xray[[2,6]]` unique values in the range `r range(df_sensor$Humy)`.  
+
+- *PM2* (Particular Matter 2.5): `r df_sensor_xray[[3,6]]` unique values in the range `r range(df_sensor$PM2)`. 
+
+- *PM10* (Particular Matter 10): `r df_sensor_xray[[4,6]]` unique values in the range `r range(df_sensor$PM10)`. 
+ 
+- *date*: `r df_sensor_xray[[5,6]]` unique dates.
+
+## Defects per component per day `Q_event_Data.csv.csv`
+
+```{r fig.pos='H'}
+
+df_defects_xray %>% 
+  kbl(caption = "Summary Q event Data") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>% 
+  kable_styling(latex_options = "HOLD_position")
+  
+```
+
+1. `Q_event_Data.csv` contains `r nrow(df_defects_xray)` different variables.
+
+2.  The number of observations is `r df_defects_xray[[1,4]]`.
+
+3. No missing values or *NA* are present.
+
+4. From the total `r df_defects_xray[[1,4]]` observations we have the following:
+
+- *Q_event_Data*: `r df_defects_xray[[1,6]]` unique dates. 
+
+- *id_db*: `r df_defects_xray[[2,6]]` unique values.  
+
+- *component*: `r df_defects_xray[[3,6]]` unique values. 
+
+- *status* (defect): `r df_defects_xray[[4,6]]` unique values. 
+ 
+
+## Id defects per id car `Q_igefs_Data.csv`
+
+```{r fig.pos='H'}
+
+df_ids_xray %>% 
+  kbl(caption = "Summary Q igefs Data") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>% 
+  kable_styling(latex_options = "HOLD_position")
+  
+```
+
+1. `Q_igefs_Data.csv` contains `r nrow(df_ids_xray)` different variables.
+
+2.  The number of observations is `r df_ids_xray[[1,4]]`.
+
+3. No missing values or *NA* are present.
+
+4. From the total `r df_ids_xray[[1,4]]` observations we have the following:
+
+- *igef*: `r df_ids_xray[[1,6]]` unique values. 
+
+- *id_db*: `r df_ids_xray[[2,6]]` unique values.  
+
+
+# Generall review
+
+Now that we have a very good picture of the data we have, we can answer the questions we proposed at the beginning.
+
+
+## Proportion of cars without defects and with defects
+### Is there any defect more common than others?
+
+
+The total of cars painted, at the moment is `r nrow(df_process %>% distinct(igef))`, 
+where `r nrow(df_cars_no_defects %>% distinct(igef))` (~`r percent(nrow(df_cars_no_defects %>% distinct(igef))/nrow(df_process %>% distinct(igef)))`) are in perfect conditions and `r nrow(df_cars_defects %>% distinct(igef))` (~`r percent(nrow(df_cars_defects %>% distinct(igef))/nrow(df_process %>% distinct(igef)))`) have defects at the end of the process.
+
+Combining `P_Data.csv` and `Q_igefs_Data.csv` we obtain 
+
+
+```{r  fig.pos='H'}
+
+df_cars_no_defects %>% bind_rows(df_cars_defects) %>% 
+  distinct(igef, .keep_all=TRUE) %>% 
+  count(status) %>% 
+  mutate(percentage=percent(n/sum(n))) %>% 
+  rename(`number of cars`=n) %>% 
+  ggplot(aes(x = reorder(status,-`number of cars`), y = `number of cars`)) +
+  geom_col(aes(fill=status)) +
+  geom_label(aes(label=percentage), family="Times") +
+  labs(x = "status", y = "Number of cars", fill = "status" ) +
+  ggtitle("Proportion of cars with and without defects after painting process")
+
+```
+
+
+
+
+```{r  fig.pos='H'}
+
+df_cars_no_defects %>% bind_rows(df_cars_defects) %>% 
+  distinct(igef, .keep_all=TRUE) %>% 
+  count(status) %>% 
+  mutate(percentage=percent(n/sum(n))) %>% 
+  rename(`number of cars`=n) %>% 
+  kbl(caption = "Proportion of cars with and without defects after painting process") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>% 
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+The most common defect is crater with ~ $11$%, followed by drop, inclusion and orange peal.
+
+### When do defects occur during the day, more often at a specific time?
+
+Everyday there are 150 cars produced.
+
+```{r  fig.pos='H'}
+
+df_process_dates %>% 
+group_by(year, month,day)  %>% 
+  distinct(igef) %>% 
+  count() %>% 
+  rename(`cars painted`= n) %>% 
+  ungroup() %>% 
+  sample_frac(.2) %>% 
+   kbl(caption = "Sample of number of cars being painted in a day") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>% 
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+- In the data, there are only 3 months reported January, February, and March from  2023.
+
+- The painting process is carried on in a single shift from 8 am to 15 hrs  from Monday to Friday.
+
+- All components of the car are painted at the same time.
+
+
+1. The month with more defective cars is January. We can identify a significant reduction in the number of cars with defects in March.
+
+```{r fig.pos='H'}
+
+df_cars_defects_dates %>% 
+  group_by(month) %>% 
+  distinct(igef,.keep_all=TRUE) %>% 
+  count() %>%  
+  ggplot(aes(x = reorder(month,-n), y = n, fill=month)) +
+  geom_col(position = "dodge") +
+  theme(legend.position = "") +
+  labs(x = "Month", y = "Number of cars") +
+  ggtitle("Number of cars with defect per month")
+
+
+```
+
+2. During January, which is the month with more defective cars we identify that Monday and Tuesday are the days with more defective cars.
+
+3. During February, we identify that Monday Wednesday, and Friday are the days with more defective cars.
+
+4. During March, we identify that Wednesday, Thursday, and Friday are the days with more defective cars.
+
+
+```{r, fig.pos='H'}
+
+df_cars_defects_dates %>% 
+  group_by(month, day) %>% 
+  distinct(igef,.keep_all=TRUE) %>% 
+  count() %>% 
+  #filter(month=="February") %>% 
+  ggplot(aes(x = day, y = n, fill = day)) +
+  geom_col(position = "dodge") +
+  theme(legend.position = "") +
+  labs(x = "Day", y = "Number of cars") +
+  ggtitle("Number of cars with defects per day and month") +
+  facet_grid(rows = vars(reorder(month,-n)))
+
+
+```
+
+In a more detailed image, we can identify the same as we did before, but considering the hour.
+
+
+```{r, fig.pos='H'}
+
+df_cars_defects_dates %>% 
+  group_by(month, day,hour) %>% 
+  distinct(igef,.keep_all=TRUE) %>% 
+  count() %>% 
+  #filter(month=="February") %>% 
+  ggplot(aes(x = day, y = n, fill = day)) +
+  geom_col(position = "dodge") +
+  theme(legend.position = "",
+        axis.text.x = element_text(angle = 90)) +
+  labs(x = "Day", y = "Number of cars") +
+  ggtitle("Number of cars with defects per day, hour and, month") +
+  facet_grid(rows = vars(reorder(month,-n)), cols = vars(hour))
+  
+
+
+```
+
+1. During January and February the highest number of defective cars is registered on Monday at 11. 
+
+2. On the contrary, in March the same day and time register one of the lowest numbers of defective cars.
+
+3. The day and the time with the lowest number of defective cars is Tuesday at 15 hrs for all the months.
+
+## Proportion of colors and components without defects and with defects
+
+At this time there are only 3 colors applied. The number of car painted with these thre colors is *fairly* even.
+
+```{r fig.pos='H'}
+
+df_9150 %>% 
+  left_join(df_colors, by = c("color"="color_code")) %>% 
+  group_by(color_name) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(percentage=percent(n/sum(n))) %>% 
+  rename(`number of cars`=n) %>% 
+  ggplot(aes(x = reorder(color_name,-`number of cars`), y = `number of cars`)) +
+  geom_col(aes(fill=color_name)) +
+  geom_label(aes(label=percentage), family="Times") +
+  labs(x = "status", y = "Number of cars", fill = "Color" ) +
+  ggtitle("Proportion of colors")
+
+```
+
+
+### Does a specific color have more defects than the others?
+
+```{r fig.pos='H'}
+
+df_9150 %>% 
+  left_join(df_colors, by = c("color"="color_code")) %>% 
+ # filter(status!="OK") %>% 
+  group_by(status, color_name) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(percentage=percent(n/sum(n))) %>% 
+  rename(`number of cars`=n) %>% 
+  ggplot(aes(x = reorder(status,-`number of cars`), y = `number of cars`)) +
+  geom_col(aes(fill=color_name),position = "dodge") +
+  labs(x = "status", y = "Number of cars", fill = "Color" ) +
+  ggtitle("Proportion of defects by colors")
+
+
+  
+```
+
+
+```{r fig.pos='H'}
+
+df_9150 %>% 
+  left_join(df_colors, by = c("color"="color_code")) %>% 
+  group_by(status, color_name) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(percentage=percent(n/sum(n))) %>% 
+  rename(`number of cars`=n) %>% 
+  kbl(caption = "Proportion of defects by colors") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>% 
+  kable_styling(latex_options = "HOLD_position")
+  
+  
+```
+
+
+1. When the car has no defects, we can say that all colors are applied in a similar number of cars. There is not much difference in the number of cars per color.
+
+2. When the painting is defective, we can notice  the following:
+
+- For crater defect, the color with the highest number of cases is Antartic White.
+
+- For drop defect, the color with the highest number of cases is Thundermorning.
+
+- For   orange peal, the highest number of cases is Sharpy Blue.
+
+- Inclusion does not report major variation in the 3 colors. We also can say that the least probable defect to occur is inclusion.
+
+## Defects by components
+###  Do the defects occur evenly in any component of the car or is there a component that presents more?
+
+```{r fig.pos='H'}
+
+df_cars_defects %>% 
+  group_by(component) %>% 
+  count(status) %>% 
+  rename(`number of cars`=n) %>% 
+  ggplot(aes(x = reorder(status,-`number of cars`), y = `number of cars`)) +
+  geom_col(aes(fill=component),position = "dodge") +
+  facet_grid(rows = vars(component)) +
+  theme(legend.position = "") +
+  labs(x = "status", y = "Number of cars") +
+  ggtitle("Number of cars per defect and component")
+
+```
+
+
+
+1. The defect that occurs less frequent is inclusion.
+
+2. In general, the defect that occurs the most is crater. Considering the component of the car, the one that occurs the most is crater on top of the car.
+
+
+## Parameters (presure, voltage, current, spin) 
+
+We will analyze the distribution of the data with respect to presure (pressure), voltage, current, and spin separately. 
+
+### Presure (presure)
+
+```{r fig.pos='H'}
+
+  df_45750_full_sensor  %>%
+    ggplot(aes(x = status , y = presure, group = status)) +
+    geom_boxplot(aes(color = status)) +
+  geom_jitter(color="gray", size=0.4, alpha=0.05) +
+   theme(legend.position = "") +
+  theme(legend.position = "") +
+  labs(x = "status", y = "presure") +
+  ggtitle("Distribution of the data as a funtion of presure")
+     
+
+```
+
+```{r fig.pos='H'}
+
+df_45750_somecols_sensor_presure %>%
+   distinct(status,mean,median,q_25,q_75) %>%
+  kable(caption = "Summary of status vs presure") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+In this case, we can observe very interesting details:
+
+There are some values of presure (pressure) in the range ~305 to ~313 (assuming as units psi [1]) where very few data points (components) fall into.
+
+1. The defects occur at very different values of pressure:
+- The majority of the components without the defect (OK) occur below ~306  or above ~312 (assuming as units psi [1]).
+- Crater defect occurs more often at low pressures below 320. It is clear that there are more components with the defect above that limit, nevertheless, the majority (75% of the components) occur in that range.
+- Drop defect has 75% of the components below 323. The remaining components are distributed above 323 and below 316.
+- Inclusion, as we saw in previous sections, has very few components affected by it. 
+- Orange defect has the majority (75%) of components in the range 319 - 331.
+
+
+### Voltage
+
+We must emphasize that the voltage variable has a very interesting distribution of values. The range goes as follows
+from 632  to 770 (assuming V as units), then it makes a jump from 6331 to 6362. There is a huge gap in the applied voltages.
+
+This becomes evident when we verify the colors by  voltages that are used, being Sharpy Blue the only color that is painted at voltages above 6000 V.  
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor %>% 
+  group_by(voltage,color,component) %>% 
+  count(color) %>% 
+  left_join(df_colors, by=c("color"="color_code")) %>% 
+  ggplot(aes(x = voltage, y = n, color=color_name)) +
+  geom_point() +
+  labs(x = "voltage", y = "Number of cars", color="color") +
+  ggtitle("Distribution of the cars by color vs voltage")
+
+```
+
+
+Since we know that there is only one color using voltages above 6000, we can remove that color and explore it separately from the other 2.
+
+
+```{r fig.pos='H'}
+
+   df_45750_somecols_sensor_voltage_2colors %>%
+    ggplot(aes(x = status , y = voltage, group = status)) +
+    geom_boxplot(aes(color = status)) +
+    geom_jitter(color="gray", size=0.4, alpha=0.03) +
+   theme(legend.position = "") +
+  labs(x = "status", y = "voltage") +
+  ggtitle("Distribution of the data as a funtion of voltage (2 colors)")
+     
+
+```
+
+
+```{r fig.pos='H'}
+
+df_45750_somecols_sensor_voltage_2colors  %>%
+   distinct(status,mean,median,q_25,q_75) %>%
+  kable(caption = "Summary of status vs voltage (2 colors)") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+It is shown that for different values of voltages, the defects appear:
+- 75% of the cars that present crater are in the range of 743 and 756.
+- Drop, on the other hand, appear at low values of voltage.
+- Inclusion, we can observe a very low number of components affected by it.
+- Orange has very few components, but most of the points are above 749.
+- The inconvenience here, is that when there are no defects, the most concentration of points occur exactly at the limits when crater and drop occur.
+
+
+For the case of 1 color (voltages above 6000) we obtain the following:
+
+```{r fig.pos='H'}
+
+df_45750_somecols_sensor_voltage_1colors %>% 
+ggplot(aes(x = status , y = voltage, group = status)) +
+  geom_boxplot(aes(color = status)) +
+  geom_jitter(color="gray", size=0.4, alpha=0.05) +
+  theme(legend.position = "") +
+  labs(x = "status", y = "voltage") +
+  ggtitle("Distribution of the data as a funtion of voltage (1 color)")
+
+```
+
+In this specific case, the variations are not big between no defects and any other defect.
+
+- Inclusion remains the least probable defect to occur.
+- At these values of voltage the most common defect is orange.
+
+
+## Current
+
+```{r}
+
+df_45750_somecols_sensor_current %>%
+    ggplot(aes(x = status , y = current, group = status)) +
+    geom_boxplot(aes(color = status)) +
+    geom_jitter(color="gray", size=0.4, alpha=0.03) +
+  theme(legend.position = "") +
+  labs(x = "status", y = "current") +
+  ggtitle("Distribution of the data as a funtion of current")
+     
+```
+
+
+```{r fig.pos='H'}
+
+df_45750_somecols_sensor_current%>%
+   distinct(status,mean,median,q_25,q_75) %>%
+  kable(caption = "Summary of status vs current") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+In this case, the differences among the different statuses are bigger than in other cases.
+
+1. Drop and orange defects appear at a very small range of currents. 75% of the components with this defect are in the range 359 - 388 (mA suggested units).
+
+2. In the case of crater and inclusion the majority of components with these defects are in the range 366 - 389 mA. Only a small proportion of components are in the range of 220 -238 mA.
+
+3. Drop is the most common defect in this case.
+
+
+## Spin
+
+```{r}
+
+ df_45750_somecols_sensor_spin %>%
+    ggplot(aes(x = status , y = spin, group = status)) +
+    geom_boxplot(aes(color = status)) +
+    geom_jitter(color="gray", size=0.4, alpha=0.03)  +
+  theme(legend.position = "") +
+  labs(x = "status", y = "spin") +
+  ggtitle("Distribution of the data as a funtion of spin")
+     
+```
+
+
+```{r fig.pos='H'}
+
+ df_45750_somecols_sensor_spin %>%
+   distinct(status,mean,median,q_25,q_75) %>%
+  kable(caption = "Summary of status vs spin") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+In this case, the differences among the different statuses are bigger than in other cases, as in the case of current.
+
+1. Drop and orange defects appear at a very small range of currents. 75% of the components with this defect are in the range 53892 - 54113 (rpm suggested units). In both cases, there are more outliers than in previous plots.
+
+2. In the case of crater and inclusion the majority of components with these defects are in the range 55478 - 55602 rmp. Only a small proportion of components are in the range of 53899 - 54018 rmp.
+
+
+# Sensor data
+
+Analyzing the sensor data it is important to note the measurements of Temperature, Humidity, Particular Matter are done every 15 minutes during the whole day. 
+
+The second important detail is that the sensors have performed measurements since December 2022. In this case, we will remove those measurements since we are not doing forecasting over time of those variables and the data we have about the painting process covers only 2023.
+
+
+```{r fig.pos='H'}
+
+df_sensor_dates %>% 
+  sample_frac(.002) %>% 
+  kbl(caption = "Sample of sensors measurments") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>% 
+  kable_styling(latex_options = "HOLD_position",font_size = 8)
+
+
+```
+
+
+
+This is important to note because the cars are painted at very specific times, not necessarily when the sensor measures the variables. 
+
+After combing the data, we will work for now without some of the variables. The dataset we have with all the information on the cars and the sensors looks as follows:
+
+```{r fig.pos='H'}
+
+df_45750_somecols_sensor %>% 
+   sample_frac(.00025)%>% 
+  kbl(caption = "Sample data of cars and sensors measurments combined") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>% 
+  kable_styling(latex_options = "HOLD_position",font_size = 7)
+
+```
+
+
+## `status` vs Temperature 
+
+As we mentioned before, the sensor continuously measures, in this the Temperature, every 15 minutes. Now that we have connected the information of the sensor with the information about the painting process we will look for some anomalies or event in the Temperature that allows us to say if it plays a role in causing defects.
+
+```{r fig.pos='H'}
+
+df_45750_somecols_sensor_Temp  %>%
+  ggplot(aes(x = status, y = Temp, group = status)) +
+  geom_boxplot(aes(color = status)) +
+  geom_jitter(color="gray", size=0.4, alpha=0.03) +
+   theme(legend.position = "") +
+  theme(legend.position = "") +
+  labs(x = "status", y = "Temperature C") +
+  ggtitle("Distribution of the data as a funtion of Temperature ºC")
+ 
+```
+
+
+
+
+```{r fig.pos='H'}
+
+df_45750_somecols_sensor_Temp %>% 
+   distinct(status,mean,median,q_25,q_75) %>% 
+  kbl(caption = "Summary of status vs. Temperature ºC") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>% 
+  kable_styling(latex_options = "HOLD_position")
+    
+
+```
+
+
+We can notice from the box plots, there is no big variation in the median for any of the statuses. In this case, we are not discriminating among components.
+
+1. The median is similar among the defects ranging from 18.92 ªC for OK status to  19.01 ºC for orange.
+
+2. The boxes are aligned with very small variations among them in maximum and minim values of Temperature and their corresponding quantiles.
+
+<!-- Considering this specific analysis, taking into account only the status vs Temperature we could say that this variable does not have a great impact on defects. -->
+
+## `status` vs Humidity
+
+We will do the same analysis as we did before in the case of the Temperature. Considering only the status and Humidity as variables.
+
+
+```{r fig.pos='H'}
+
+df_45750_somecols_sensor_Humy  %>%
+  ggplot(aes(x = status, y = Humy, group = status)) +
+  geom_boxplot(aes(color = status)) +
+  geom_jitter(color="gray", size=0.4, alpha=0.03) +
+   theme(legend.position = "") +
+  theme(legend.position = "") +
+  labs(x = "status", y = "Humidity") +
+  ggtitle("Distribution of the data as a funtion of Humidity %RH")
+ 
+```
+
+
+```{r fig.pos='H'}
+
+df_45750_somecols_sensor_Humy %>% 
+  distinct(status,mean,median,q_25,q_75) %>% 
+  kbl(caption = "Summary of status vs. Humitidty") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>% 
+  kable_styling(latex_options = "HOLD_position")
+    
+
+```
+
+
+In the case of status vs Humidity, the results are similar. We can not see big variations among the representative values.
+
+
+## `status` vs PM2 (PM 2.5) $\frac{\mu g}{m^{3}}$
+
+We will do the same analysis as we did before considering only status and PM2.
+
+
+```{r fig.pos='H'}
+
+ df_45750_somecols_sensor_PM2 %>% 
+    ggplot(aes(x = status , y = PM2, group = status)) +
+    geom_boxplot(aes(color = status)) +
+  geom_jitter(color="gray", size=0.4, alpha=0.03) +
+   theme(legend.position = "") +
+  theme(legend.position = "") +
+  labs(x = "status", y = "PM2 (PM 2.5)") +
+  ggtitle("Distribution of the data as a funtion of PM2")
+ 
+```
+
+
+```{r fig.pos='H'}
+
+df_45750_somecols_sensor_PM2%>% 
+  distinct(status,mean,median,q_25,q_75) %>%
+  kable(caption = "Summary of status vs. PM2  (PM 2.5)") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+    
+
+```
+
+
+
+Now we can observe slightly bigger differences. The boxes are longer, meaning that the distribution of the data is more spread along the values of PM2. 
+
+1. As we saw in the previous analysis, inclusion seems to be the less probable defect. In this specific plot, the 25%, the median, and 75% quantiles are above everyone else. This means that the defect occurs at slightly higher values of PM2 than the other defects.
+
+
+
+
+## `status` vs PM10 (PM 10) $\frac{\mu g}{m^{3}}$
+
+We will do the same analysis as we did before considering only status and PM10.
+
+
+```{r fig.pos='H'}
+
+ df_45750_somecols_sensor_PM10 %>% 
+    ggplot(aes(x = status , y = PM10, group = status)) +
+    geom_boxplot(aes(color = status)) +
+  geom_jitter(color="gray", size=0.4, alpha=0.03) +
+   theme(legend.position = "") +
+  theme(legend.position = "") +
+  labs(x = "status", y = "PM10 (PM 10)") +
+  ggtitle("Distribution of the data as a funtion of PM10")
+ 
+```
+
+
+```{r fig.pos='H'}
+
+df_45750_somecols_sensor_PM10%>% 
+  distinct(status,mean,median,q_25,q_75) %>%
+  kable(caption = "Summary of status vs. PM10  (PM 10)") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+    
+
+```
+
+
+Apparently when we compare the data vs PM10 the distribution of the data, once again, seems more spread compared to other variables. 
+
+1. The median of drop defect is much lower than for the other statuses, where all are above 7, and drop is ~6.8. This means that PM10 impact more to drop defect than the rest.
+
+2. The quantiles for drop are also below the rest of the statuses, which could mean that drop defect may occur at lower levels of PM10.
+
+
+# Models
+
+Now we will proceed to review some models, with the intention of being able to predict possible defects.
+
+## Logistic regression with parameters pressure, voltage, current, spin
+
+We will implement logistic regression in a very general form. We will create a new variable, where our data will be identified as *Defective* if any of the defects appear and *OK* when there is no defect.
+
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor_model_1 %>%
+  sample_frac(.00025) %>% 
+  kable(caption = "Sample of data to be used for modeling with new variable Defective.") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+    
+
+```
+
+
+### Splitting the data
+
+We will use a very simple partition as starting point, 70% for training data and 30% for testing.
+
+Training data contains `r nrow(df_45750_full_sensor_model_1_train )`.
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor_model_1_train %>% 
+  group_by(defects) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(proportion =n/sum(n)) %>% 
+  kable(caption = "Proportions of training data") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+Test data contains `r nrow(df_45750_full_sensor_model_1_test )`.
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor_model_1_test %>% 
+  group_by(defects) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(proportion =round(n/sum(n),2)) %>% 
+  kable(caption = "Proportions of training data") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+### Model
+
+
+
+A logistic regression is implemented. In this case, the posterior probability of a component to be *OK* or *Defective* is calculated as
+
+\begin{equation}
+p(X)=\frac{e^{\beta_0+\beta_1voltage+\beta_2presute+\beta_3current+\beta_4spin}}{1+e^{\beta_0+\beta_1voltage+\beta_2presute+\beta_3current+\beta_4spin}}.
+\end{equation}
+
+
+#### Model with train data
+
+After implementing the model we obtain the following summary
+
+
+```{r}
+
+summary(glm.parameters)
+
+```
+
+where the most important result is the $p-values<0.05$ for each variable we are considering. 
+
+
+In this case, our new train data with the posterior probabilities are
+
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor_model_1_train %>%
+  mutate(probs=predict(glm.parameters,type="response")) %>% 
+  sample_frac(.0004) %>%
+  kable(caption = "Training data with posterior probailities") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+We set the threshold if the posterior probability $p>0.87$ then the prediction will be *OK*, otherwise the prediction will be set as *Defective*:
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor_model_1_train_2 %>%
+  mutate(probs=predict(glm.parameters,type="response")) %>% 
+  sample_frac(.0004) %>%
+  kable(caption = "Training data with posterior probailities and prediction") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+
+Confusion matrix
+
+```{r fig.pos='H'}
+
+table(df_45750_full_sensor_model_1_train_2$defects,df_45750_full_sensor_model_1_train_2$prediction) %>% 
+  kable(caption = "Confusion matrix.") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+
+```
+
+Proportions
+
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor_model_1_train_2 %>% 
+  count(correct) %>% 
+  mutate(proportion=round(n/sum(n),2)) %>% 
+  kable(caption = "Porportion of correct and wrong predictions") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+
+```
+
+The results are not very good since more than 40% are mislabeled.
+
+
+#### Model with test data
+
+The next step is applying the model to the test data
+
+
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor_model_1_test_2 %>% 
+  sample_frac(.0009) %>%
+  kable(caption = "Testing data with posterior probailities and prediction") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+
+
+Confusion matrix
+
+```{r fig.pos='H'}
+
+table(df_45750_full_sensor_model_1_test_2$defects,df_45750_full_sensor_model_1_test_2$prediction) %>% 
+  kable(caption = "Confusion matrix in for testing data.") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+
+```
+
+Proportions
+
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor_model_1_test_2 %>% 
+  count(correct) %>% 
+  mutate(proportion=round(n/sum(n),2)) %>% 
+  kable(caption = "Porportion of correct and wrong predictions for testing data") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+
+```
+
+
+
+## Logistic regression with external factors Temperature, Humidity, PM2 and PM10
+
+We will use the previous data to create the model where our data is identified as *Defective* if any of the defects appear and *OK* when there is no defect.
+
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor_model_2 %>%
+  sample_frac(.00025) %>% 
+  kable(caption = "Sample of data to be used for modeling with new variable Defective.") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+    
+
+```
+
+
+### Splitting the data
+
+The splitting of the data is the same as before with 70% for training data and 30% for testing.
+
+Training data contains `r nrow(df_45750_full_sensor_model_2_train )`.
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor_model_2_train %>% 
+  group_by(defects) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(proportion = round(n/sum(n),2)) %>% 
+  kable(caption = "Proportions of training data") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+Test data contains `r nrow(df_45750_full_sensor_model_2_test )`.
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor_model_2_test %>% 
+  group_by(defects) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(proportion=round(n/sum(n),2)) %>% 
+  kable(caption = "Proportions of training data") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+
+
+
+
+### Model
+
+A logistic regression is implemented. In this case, the posterior probability of a component to be *OK* or *Defective* is calculated as
+
+\begin{equation}
+p(X)=\frac{e^{\beta_0+\beta_1Temp+\beta_2Humy+\beta_3PM2+\beta_4PM10}}{1+e^{\beta_0+\beta_1Temp+\beta_2Humy+\beta_3PM2+\beta_4PM10}}.
+\end{equation}
+
+#### Model with train data
+
+After implementing the model we obtain the following summary
+
+```{r}
+
+summary(glm.factors)
+
+```
+
+where the most important result is there are variables with $p-values>0.05$. 
+
+In this case, our new train data with the posterior probabilities are
+
+
+
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor_model_2_train_2 %>% 
+  select(igef:probs) %>% 
+  sample_frac(.0004) %>%
+  kable(caption = "Training data with posterior probailities") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+
+We set the threshold if the posterior probability $p>0.87$ then the prediction will be *OK*, otherwise the prediction will be set as *Defective*:
+
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor_model_2_train_2 %>%
+  sample_frac(.0004) %>%
+  kable(caption = "Training data with posterior probailities and prediction") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position", font_size = 8)
+
+```
+
+
+Confusion matrix
+
+```{r fig.pos='H'}
+
+table(df_45750_full_sensor_model_2_train_2$defects,df_45750_full_sensor_model_2_train_2$prediction) %>% 
+  kable(caption = "Confusion matrix.") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+
+```
+
+Proportions
+
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor_model_2_train_2 %>% 
+  count(correct) %>% 
+  mutate(proportion=round(n/sum(n),2)) %>% 
+  kable(caption = "Porportion of correct and wrong predictions") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+
+```
+
+The results are not very good since more than 30% are mislabeled but better than the previous model.
+
+
+
+#### Model with test data
+
+The next step is applying the model to the test data
+
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor_model_2_test_2 %>% 
+  sample_frac(.0009) %>%
+  kable(caption = "Testing data with posterior probailities and prediction") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position", font_size = 8)
+
+```
+
+
+
+Confusion matrix
+
+```{r fig.pos='H'}
+
+table(df_45750_full_sensor_model_2_test_2$defects,df_45750_full_sensor_model_2_test_2$prediction) %>% 
+  kable(caption = "Confusion matrix in for testing data.") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+
+```
+
+Proportions
+
+
+```{r fig.pos='H'}
+
+df_45750_full_sensor_model_2_test_2 %>% 
+  count(correct) %>% 
+  mutate(proportion=round(n/sum(n),2)) %>% 
+  kable(caption = "Porportion of correct and wrong predictions for testing data") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+
+```
+
+
+As a simple result the second model with external factor seems to perform better than the model with only the parameters by ~8%.
+
+
+
+
+
+\pagebreak
+
+# Bibliography
+
+[1] **Implementation of Industrial Robot for Painting Applications** Ijeoma W. Muzan, Tarig Faisal, H M A A Al-Assadi, Mahmud Iwan. International Symposium on Robotics and Intelligent Sensors 2012 (IRIS 2012),  Procedia Engineering 41 ( 2012 ) 1329 – 1335.
+
+[2] **The ABB Air Control Unit manual**
